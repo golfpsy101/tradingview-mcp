@@ -1,0 +1,119 @@
+//@version=5
+indicator("RSI VWAP + Extreme Reversal Signals", overlay=true, max_bars_back=500)
+
+// ══════════════════════════════════════════════════════════════════════
+// INPUTS
+// ══════════════════════════════════════════════════════════════════════
+
+var string G1 = "RSI VWAP Settings"
+rsi_length = input.int(15,   "RSI Length",       minval=1,  maxval=200, group=G1)
+os_level   = input.float(10, "Oversold Level",   minval=1,  maxval=49,  group=G1,
+             tooltip="RSI VWAP below this level = oversold (green cloud)")
+ob_level   = input.float(90, "Overbought Level", minval=51, maxval=99,  group=G1,
+             tooltip="RSI VWAP above this level = overbought (red cloud)")
+
+var string G2 = "Extreme Reversal Setup"
+atr_length = input.int(14,    "ATR Length",   minval=1,   maxval=200,       group=G2)
+atr_mult   = input.float(3.0, "Multiplier",   minval=0.1, maxval=20, step=0.1, group=G2)
+ema_length = input.int(20,    "EMA Basis",    minval=1,   maxval=200,       group=G2)
+
+var string G3 = "Display"
+show_bands = input.bool(true, "Show ATR Bands",              group=G3)
+show_sub   = input.bool(true, "Show Individual ERS Signals", group=G3)
+show_bg    = input.bool(true, "Show RSI Cloud Background",   group=G3)
+
+// ══════════════════════════════════════════════════════════════════════
+// RSI VWAP
+// ══════════════════════════════════════════════════════════════════════
+
+// Session VWAP → RSI of VWAP
+vwap_src = ta.vwap(hlc3)
+rsi_vwap = ta.rsi(vwap_src, rsi_length)
+
+is_oversold   = rsi_vwap <= os_level   // green cloud condition
+is_overbought = rsi_vwap >= ob_level   // red cloud condition
+
+// Subtle background tint to represent RSI cloud state on the price chart
+bgcolor(show_bg and is_oversold   ? color.new(color.green, 90) : na, title="RSI VWAP Oversold (Green Cloud)")
+bgcolor(show_bg and is_overbought ? color.new(color.red,   90) : na, title="RSI VWAP Overbought (Red Cloud)")
+
+// ══════════════════════════════════════════════════════════════════════
+// EXTREME REVERSAL SETUP  (ATR-based bands)
+// ══════════════════════════════════════════════════════════════════════
+
+atr   = ta.atr(atr_length)
+basis = ta.ema(close, ema_length)
+upper = basis + atr_mult * atr
+lower = basis - atr_mult * atr
+
+plot(show_bands ? upper : na, "Upper Band", color.new(color.red,   65), linewidth=1)
+plot(show_bands ? lower : na, "Lower Band", color.new(color.green, 65), linewidth=1)
+plot(show_bands ? basis : na, "EMA Basis",  color.new(color.gray,  55), linewidth=1)
+
+// Bullish extreme reversal: candle low touched or pierced lower band AND candle closed bullish
+blue_signal = low <= lower and close > open
+
+// Bearish extreme reversal: candle high touched or pierced upper band AND candle closed bearish
+red_signal  = high >= upper and close < open
+
+// ══════════════════════════════════════════════════════════════════════
+// COMBINED BUY / SELL SIGNALS
+// Both conditions must be true simultaneously
+// ══════════════════════════════════════════════════════════════════════
+
+// BUY:  RSI VWAP oversold (green cloud) + bullish extreme reversal (blue signal)
+buy_signal  = is_oversold   and blue_signal
+
+// SELL: RSI VWAP overbought (red cloud) + bearish extreme reversal (red signal)
+sell_signal = is_overbought and red_signal
+
+// ══════════════════════════════════════════════════════════════════════
+// PLOT SHAPES
+// ══════════════════════════════════════════════════════════════════════
+
+// Individual ERS sub-signals (unconfirmed by RSI VWAP)
+plotshape(show_sub and blue_signal and not buy_signal,
+          title    = "ERS Bullish Signal",
+          style    = shape.circle,
+          location = location.belowbar,
+          color    = color.new(color.blue, 20),
+          size     = size.tiny)
+
+plotshape(show_sub and red_signal and not sell_signal,
+          title    = "ERS Bearish Signal",
+          style    = shape.circle,
+          location = location.abovebar,
+          color    = color.new(color.red, 20),
+          size     = size.tiny)
+
+// BUY — green arrow below candle (both conditions confirmed)
+plotshape(buy_signal,
+          title     = "BUY Signal",
+          style     = shape.arrowup,
+          location  = location.belowbar,
+          color     = color.lime,
+          size      = size.normal,
+          text      = "BUY",
+          textcolor = color.lime)
+
+// SELL — red arrow above candle (both conditions confirmed)
+plotshape(sell_signal,
+          title     = "SELL Signal",
+          style     = shape.arrowdown,
+          location  = location.abovebar,
+          color     = color.red,
+          size      = size.normal,
+          text      = "SELL",
+          textcolor = color.red)
+
+// ══════════════════════════════════════════════════════════════════════
+// ALERTS
+// ══════════════════════════════════════════════════════════════════════
+
+alertcondition(buy_signal,
+               title   = "BUY — RSI VWAP + Extreme Reversal",
+               message = "BUY ▲ | {{ticker}} @ {{close}} | RSI VWAP in green cloud (oversold) + Bullish Extreme Reversal confirmed")
+
+alertcondition(sell_signal,
+               title   = "SELL — RSI VWAP + Extreme Reversal",
+               message = "SELL ▼ | {{ticker}} @ {{close}} | RSI VWAP in red cloud (overbought) + Bearish Extreme Reversal confirmed")
